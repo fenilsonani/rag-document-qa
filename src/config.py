@@ -36,6 +36,17 @@ class Config:
     OPENAI_MODEL: str = "gpt-4o"  # GPT-4o (flagship multimodal model)
     ANTHROPIC_MODEL: str = "claude-sonnet-4-20250514"  # Claude 4.0 Sonnet
     
+    # Redis Cache Configuration
+    REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
+    REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))
+    REDIS_DB: int = int(os.getenv("REDIS_DB", "0"))
+    REDIS_PASSWORD: Optional[str] = os.getenv("REDIS_PASSWORD")
+    
+    # Cache Settings
+    CACHE_ENABLED: bool = os.getenv("CACHE_ENABLED", "true").lower() == "true"
+    CACHE_DEFAULT_TTL: int = int(os.getenv("CACHE_DEFAULT_TTL", "3600"))  # 1 hour
+    CACHE_MAX_MEMORY_MB: int = int(os.getenv("CACHE_MAX_MEMORY_MB", "1024"))  # 1GB
+    
     @classmethod
     def validate_api_keys(cls) -> bool:
         """Check if at least one API key is configured."""

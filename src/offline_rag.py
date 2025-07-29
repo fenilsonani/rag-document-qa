@@ -10,11 +10,17 @@ from datetime import datetime
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from transformers import pipeline, AutoTokenizer, AutoModelForQuestionAnswering
-import torch
+
+try:
+    from transformers import pipeline, AutoTokenizer, AutoModelForQuestionAnswering
+    import torch
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
 
 from langchain.schema import Document
 from .config import Config
+from .model_manager import ModelManager
 
 
 class OfflineRAG:
@@ -22,6 +28,7 @@ class OfflineRAG:
     
     def __init__(self):
         self.config = Config()
+        self.model_manager = ModelManager()
         self.qa_pipeline = None
         self.summarizer = None
         self.vectorizer = TfidfVectorizer(
@@ -32,27 +39,71 @@ class OfflineRAG:
         self.document_vectors = None
         self.documents = []
         self.initialized = False
+        self.selected_models = {
+            "qa_model": "qa_distilbert",
+            "summarizer_model": "summarizer_t5",
+            "embedder_model": "embedder_sentence"
+        }
         
-    def initialize(self) -> Dict[str, Any]:
-        """Initialize offline models."""
+    def initialize(self, selected_models: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        """Initialize offline models with selected model configurations."""
+        if not TRANSFORMERS_AVAILABLE:
+            return {
+                "success": False,
+                "error": "transformers library not available",
+                "fallback": "Using basic text processing"
+            }
+        
+        if selected_models:
+            self.selected_models.update(selected_models)
+        
         try:
             print("🔄 Loading offline models (this may take a moment)...")
+            models_loaded = []
             
             # Load question-answering model
-            self.qa_pipeline = pipeline(
-                "question-answering",
-                model="distilbert-base-cased-distilled-squad",
-                tokenizer="distilbert-base-cased-distilled-squad"
-            )
+            qa_model_key = self.selected_models.get("qa_model", "qa_distilbert")
+            qa_model_info = self.model_manager.get_model_info(qa_model_key)
             
-            # Load summarization model (smaller model for speed)
-            self.summarizer = pipeline(
-                "summarization",
-                model="facebook/bart-large-cnn",
-                max_length=150,
-                min_length=50,
-                do_sample=False
-            )
+            if qa_model_info and qa_model_info.is_downloaded:
+                self.qa_pipeline = pipeline(
+                    "question-answering",
+                    model=qa_model_info.local_path,
+                    tokenizer=qa_model_info.local_path
+                )
+                models_loaded.append(f"{qa_model_info.name} (local)")
+            else:
+                # Fallback to default model
+                self.qa_pipeline = pipeline(
+                    "question-answering",
+                    model="distilbert-base-cased-distilled-squad"
+                )
+                models_loaded.append("DistilBERT QA (downloaded)")
+            
+            # Load summarization model
+            summarizer_model_key = self.selected_models.get("summarizer_model", "summarizer_t5")
+            summarizer_model_info = self.model_manager.get_model_info(summarizer_model_key)
+            
+            if summarizer_model_info and summarizer_model_info.is_downloaded:
+                self.summarizer = pipeline(
+                    "summarization",
+                    model=summarizer_model_info.local_path,
+                    tokenizer=summarizer_model_info.local_path,
+                    max_length=150,
+                    min_length=50,
+                    do_sample=False
+                )
+                models_loaded.append(f"{summarizer_model_info.name} (local)")
+            else:
+                # Fallback to smaller model
+                self.summarizer = pipeline(
+                    "summarization",
+                    model="t5-small",
+                    max_length=150,
+                    min_length=50,
+                    do_sample=False
+                )
+                models_loaded.append("T5-Small Summarizer (downloaded)")
             
             self.initialized = True
             print("✅ Offline models loaded successfully!")
@@ -60,7 +111,8 @@ class OfflineRAG:
             return {
                 "success": True,
                 "message": "Offline RAG system initialized",
-                "models_loaded": ["distilbert-qa", "bart-summarizer"]
+                "models_loaded": models_loaded,
+                "selected_models": self.selected_models
             }
             
         except Exception as e:
@@ -69,6 +121,36 @@ class OfflineRAG:
                 "error": f"Failed to initialize offline models: {str(e)}",
                 "fallback": "Using basic text processing"
             }
+    
+    def set_selected_models(self, selected_models: Dict[str, str]):
+        """Update selected models and reinitialize if needed."""
+        self.selected_models.update(selected_models)
+        if self.initialized:
+            # Reinitialize with new models
+            return self.initialize()
+        return {"success": True, "message": "Models updated, call initialize() to load"}
+    
+    def get_model_status(self) -> Dict[str, Any]:
+        """Get status of current models."""
+        status = {
+            "initialized": self.initialized,
+            "selected_models": self.selected_models.copy(),
+            "model_details": {},
+            "storage_info": self.model_manager.get_storage_info()
+        }
+        
+        for model_type, model_key in self.selected_models.items():
+            model_info = self.model_manager.get_model_info(model_key)
+            if model_info:
+                status["model_details"][model_type] = {
+                    "name": model_info.name,
+                    "is_downloaded": model_info.is_downloaded,
+                    "size_mb": model_info.size_mb,
+                    "performance_score": model_info.performance_score,
+                    "memory_usage": model_info.memory_usage
+                }
+        
+        return status
     
     def process_documents(self, documents: List[Document]) -> Dict[str, Any]:
         """Process documents for offline RAG."""
