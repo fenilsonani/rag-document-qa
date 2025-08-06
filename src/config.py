@@ -27,7 +27,22 @@ class Config:
     VECTOR_STORE_DIR: str = "vector_store"
     
     # Supported file types
-    SUPPORTED_EXTENSIONS: list[str] = [".pdf", ".txt", ".docx", ".md"]
+    SUPPORTED_EXTENSIONS: list[str] = [
+        # Documents
+        ".pdf", ".txt", ".docx", ".md", ".rtf",
+        # Spreadsheets
+        ".xlsx", ".xls", ".csv",
+        # Presentations
+        ".pptx", ".ppt",
+        # Images
+        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".webp", ".svg",
+        # Structured data
+        ".json", ".xml", ".yaml", ".yml",
+        # Web formats
+        ".html", ".htm",
+        # Ebooks
+        ".epub", ".mobi"
+    ]
     
     # Embedding model
     EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"

@@ -29,6 +29,7 @@ except ImportError:
     logging.warning("sentence-transformers not available. Semantic chunking will be limited.")
 
 from .config import Config
+from .advanced_pdf_processor import PDFLayoutElement
 
 
 @dataclass
@@ -45,6 +46,10 @@ class ChunkMetadata:
     parent_section: Optional[str] = None
     child_sections: List[str] = None
     cross_references: List[str] = None
+    # PDF-specific metadata
+    pdf_layout_info: Optional[Dict[str, Any]] = None
+    column_position: Optional[int] = None
+    is_multi_column: bool = False
     
     def __post_init__(self):
         if self.child_sections is None:
@@ -370,6 +375,269 @@ class AdaptiveChunker:
             enhanced_chunks.append(enhanced_chunk)
         
         return enhanced_chunks
+    
+    def chunk_pdf_with_layout(self, documents: List[Document]) -> List[Document]:
+        """Enhanced chunking for PDFs that preserves layout information."""
+        try:
+            pdf_chunks = []
+            
+            for doc in documents:
+                # Check if document has PDF layout information
+                if doc.metadata.get('extraction_method') == 'pdfplumber_layout':
+                    layout_chunks = self._chunk_pdf_layout_aware(doc)
+                    pdf_chunks.extend(layout_chunks)
+                else:
+                    # Fall back to regular adaptive chunking
+                    regular_chunks = self.adaptive_chunk_documents([doc])
+                    pdf_chunks.extend(regular_chunks)
+            
+            return pdf_chunks
+            
+        except Exception as e:
+            logging.warning(f"PDF layout-aware chunking failed: {e}")
+            # Fallback to regular chunking
+            return self.adaptive_chunk_documents(documents)
+    
+    def _chunk_pdf_layout_aware(self, document: Document) -> List[Document]:
+        """Chunk a PDF document while respecting its layout structure."""
+        try:
+            content = document.page_content
+            metadata = document.metadata
+            layout_info = metadata.get('layout_info', {})
+            
+            chunks = []
+            
+            # Handle multi-column layouts
+            if layout_info.get('layout_type') == 'multi_column':
+                chunks = self._chunk_multicolumn_pdf(document)
+            else:
+                # Single column - use enhanced text chunking
+                chunks = self._chunk_single_column_pdf(document)
+            
+            # Enhance chunks with PDF-specific metadata
+            for chunk in chunks:
+                self._add_pdf_metadata(chunk, layout_info)
+            
+            return chunks
+            
+        except Exception as e:
+            logging.warning(f"PDF layout chunking failed: {e}")
+            return [document]  # Return original if chunking fails
+    
+    def _chunk_multicolumn_pdf(self, document: Document) -> List[Document]:
+        """Handle multi-column PDF layouts."""
+        try:
+            content = document.page_content
+            metadata = document.metadata
+            layout_info = metadata.get('layout_info', {})
+            
+            # Split content considering column boundaries
+            column_boundaries = layout_info.get('column_boundaries', [])
+            
+            if not column_boundaries:
+                return self._chunk_single_column_pdf(document)
+            
+            # For now, use regular chunking but mark as multi-column
+            # Future enhancement: implement proper column-aware splitting
+            chunks = self._split_content_smart(content, metadata)
+            
+            # Mark chunks as multi-column
+            for chunk in chunks:
+                chunk.metadata['is_multi_column'] = True
+                chunk.metadata['column_boundaries'] = column_boundaries
+            
+            return chunks
+            
+        except Exception as e:
+            logging.warning(f"Multi-column PDF chunking failed: {e}")
+            return [document]
+    
+    def _chunk_single_column_pdf(self, document: Document) -> List[Document]:
+        """Handle single-column PDF layouts with enhanced structure detection."""
+        try:
+            content = document.page_content
+            metadata = document.metadata
+            
+            # Use structure-aware splitting
+            chunks = self._split_content_smart(content, metadata)
+            
+            return chunks
+            
+        except Exception as e:
+            logging.warning(f"Single-column PDF chunking failed: {e}")
+            return [document]
+    
+    def _split_content_smart(self, content: str, base_metadata: Dict[str, Any]) -> List[Document]:
+        """Smart content splitting that respects document structure."""
+        try:
+            # Enhanced separators for PDFs
+            pdf_separators = [
+                "\n\n\n",  # Major section breaks
+                "\n\n",    # Paragraph breaks
+                "\n• ",    # Bullet points
+                "\n- ",    # Dash points
+                "\n",      # Line breaks
+                ". ",      # Sentence breaks
+                " "        # Word breaks
+            ]
+            
+            splitter = RecursiveCharacterTextSplitter(
+                chunk_size=self.config.CHUNK_SIZE,
+                chunk_overlap=self.config.CHUNK_OVERLAP,
+                separators=pdf_separators,
+                length_function=len
+            )
+            
+            # Split the content
+            text_chunks = splitter.split_text(content)
+            
+            # Convert to Document objects with enhanced metadata
+            documents = []
+            for i, chunk_text in enumerate(text_chunks):
+                chunk_metadata = base_metadata.copy()
+                chunk_metadata.update({
+                    'chunk_index': i,
+                    'total_chunks': len(text_chunks),
+                    'chunk_method': 'pdf_structure_aware',
+                    'chunk_length': len(chunk_text)
+                })
+                
+                # Analyze chunk content
+                chunk_analysis = self._analyze_chunk_structure(chunk_text)
+                chunk_metadata.update(chunk_analysis)
+                
+                doc = Document(
+                    page_content=chunk_text,
+                    metadata=chunk_metadata
+                )
+                documents.append(doc)
+            
+            return documents
+            
+        except Exception as e:
+            logging.warning(f"Smart content splitting failed: {e}")
+            return [Document(page_content=content, metadata=base_metadata)]
+    
+    def _analyze_chunk_structure(self, chunk_text: str) -> Dict[str, Any]:
+        """Analyze the structure of a chunk to determine its characteristics."""
+        try:
+            analysis = {
+                'has_headers': False,
+                'has_lists': False,
+                'has_tables': False,
+                'has_citations': False,
+                'structure_type': 'paragraph'
+            }
+            
+            # Detect headers (lines that are short and followed by content)
+            lines = chunk_text.split('\n')
+            for i, line in enumerate(lines[:-1]):  # Exclude last line
+                if len(line.strip()) < 50 and len(line.strip()) > 5:  # Potential header
+                    next_line = lines[i + 1].strip()
+                    if len(next_line) > len(line.strip()):
+                        analysis['has_headers'] = True
+                        analysis['structure_type'] = 'section'
+                        break
+            
+            # Detect lists
+            list_patterns = [r'^\s*[•\-\*]\s+', r'^\s*\d+\.\s+', r'^\s*[a-zA-Z]\.\s+']
+            for pattern in list_patterns:
+                if re.search(pattern, chunk_text, re.MULTILINE):
+                    analysis['has_lists'] = True
+                    if analysis['structure_type'] == 'paragraph':
+                        analysis['structure_type'] = 'list'
+                    break
+            
+            # Detect table-like content
+            if '|' in chunk_text or '\t' in chunk_text:
+                # Check for multiple aligned separators
+                lines_with_separators = [line for line in lines if '|' in line or '\t' in line]
+                if len(lines_with_separators) >= 2:
+                    analysis['has_tables'] = True
+                    analysis['structure_type'] = 'table'
+            
+            # Detect citations/references
+            citation_patterns = [r'\[\d+\]', r'\(\w+\s+et\s+al\.,?\s+\d{4}\)', r'doi:', r'http://|https://']
+            for pattern in citation_patterns:
+                if re.search(pattern, chunk_text, re.IGNORECASE):
+                    analysis['has_citations'] = True
+                    break
+            
+            return analysis
+            
+        except Exception as e:
+            logging.warning(f"Chunk structure analysis failed: {e}")
+            return {'structure_type': 'paragraph'}
+    
+    def _add_pdf_metadata(self, chunk: Document, layout_info: Dict[str, Any]):
+        """Add PDF-specific metadata to chunks."""
+        try:
+            chunk.metadata.update({
+                'pdf_layout_info': layout_info,
+                'is_pdf_chunk': True,
+                'layout_type': layout_info.get('layout_type', 'single_column'),
+                'num_columns': layout_info.get('columns', 1)
+            })
+            
+            # Add column information if available
+            if layout_info.get('layout_type') == 'multi_column':
+                chunk.metadata['is_multi_column'] = True
+                chunk.metadata['column_boundaries'] = layout_info.get('column_boundaries', [])
+            
+        except Exception as e:
+            logging.warning(f"Adding PDF metadata failed: {e}")
+    
+    def get_pdf_chunking_summary(self, chunks: List[Document]) -> Dict[str, Any]:
+        """Get a summary of PDF chunking results."""
+        try:
+            pdf_chunks = [c for c in chunks if c.metadata.get('is_pdf_chunk', False)]
+            
+            if not pdf_chunks:
+                return {"message": "No PDF chunks found"}
+            
+            summary = {
+                "total_pdf_chunks": len(pdf_chunks),
+                "layout_types": {},
+                "structure_types": {},
+                "multi_column_chunks": 0,
+                "avg_chunk_length": 0,
+                "has_tables": 0,
+                "has_lists": 0,
+                "has_headers": 0
+            }
+            
+            total_length = 0
+            
+            for chunk in pdf_chunks:
+                metadata = chunk.metadata
+                
+                # Count layout types
+                layout_type = metadata.get('layout_type', 'unknown')
+                summary['layout_types'][layout_type] = summary['layout_types'].get(layout_type, 0) + 1
+                
+                # Count structure types
+                structure_type = metadata.get('structure_type', 'unknown')
+                summary['structure_types'][structure_type] = summary['structure_types'].get(structure_type, 0) + 1
+                
+                # Count features
+                if metadata.get('is_multi_column', False):
+                    summary['multi_column_chunks'] += 1
+                if metadata.get('has_tables', False):
+                    summary['has_tables'] += 1
+                if metadata.get('has_lists', False):
+                    summary['has_lists'] += 1
+                if metadata.get('has_headers', False):
+                    summary['has_headers'] += 1
+                
+                total_length += len(chunk.page_content)
+            
+            summary['avg_chunk_length'] = total_length / len(pdf_chunks)
+            
+            return summary
+            
+        except Exception as e:
+            logging.warning(f"PDF chunking summary failed: {e}")
+            return {"error": str(e)}
     
     def _classify_content_type(self, structure: Dict[str, Any]) -> str:
         """Classify content type to determine chunking strategy."""

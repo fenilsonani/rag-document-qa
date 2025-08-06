@@ -12,6 +12,25 @@ pypdf>=4.0.0
 python-docx>=1.0.0
 unstructured>=0.11.0,<0.12.0
 
+# Advanced PDF processing for tables and images
+pdfplumber>=0.9.0
+camelot-py[cv]>=0.10.1
+PyMuPDF>=1.23.0
+tabula-py>=2.8.0
+
+# Excel and Office document processing
+openpyxl>=3.1.0
+xlrd>=2.0.0
+python-pptx>=0.6.21
+
+# Additional image formats
+Pillow>=10.0.0
+Wand>=0.6.11
+
+# Structured data formats
+pandas>=2.0.0
+python-magic>=0.4.27
+
 # Embeddings and text processing
 sentence-transformers>=2.6.0
 tiktoken>=0.6.0

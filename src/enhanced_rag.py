@@ -67,6 +67,7 @@ class EnhancedRAG:
         self.initialized = False
         self.processed_documents = []
         self.adaptive_chunks = []
+        self.multimodal_elements = []  # Store extracted PDF tables/images
         self.hybrid_search_enabled = True
         self.evaluation_enabled = True
         self.adaptive_chunking_enabled = True
@@ -154,13 +155,38 @@ class EnhancedRAG:
                 documents = doc_processor.process_documents(file_paths)
                 self.processed_documents = documents
                 
+                # Extract multimodal elements from document processor (particularly PDFs)
+                extracted_multimodal = doc_processor.get_multimodal_elements()
+                if extracted_multimodal:
+                    # Process PDF elements through multimodal RAG for enhancement
+                    enhanced_elements = self.multimodal_rag.process_pdf_elements(extracted_multimodal)
+                    self.multimodal_elements.extend(enhanced_elements)
+                    print(f"✅ Processed {len(extracted_multimodal)} PDF elements ({len(doc_processor.get_tables())} tables, {len(doc_processor.get_images())} images)")
+                
                 # Apply adaptive chunking if enabled
                 if self.adaptive_chunking_enabled:
                     try:
-                        self.adaptive_chunks = self.adaptive_chunker.chunk_documents(documents)
+                        # Use PDF-aware chunking for PDFs, regular for others
+                        pdf_documents = [doc for doc in documents if doc.metadata.get('file_type') == '.pdf']
+                        other_documents = [doc for doc in documents if doc.metadata.get('file_type') != '.pdf']
                         
-                        # Convert adaptive chunks back to standard documents for offline RAG
-                        chunked_documents = [chunk.to_langchain_document() for chunk in self.adaptive_chunks]
+                        chunked_documents = []
+                        
+                        # PDF-aware chunking
+                        if pdf_documents:
+                            pdf_chunks = self.adaptive_chunker.chunk_pdf_with_layout(pdf_documents)
+                            chunked_documents.extend(pdf_chunks)
+                            print(f"✅ Applied PDF-aware chunking to {len(pdf_documents)} PDF documents")
+                        
+                        # Regular adaptive chunking for other files
+                        if other_documents:
+                            regular_chunks = self.adaptive_chunker.adaptive_chunk_documents(other_documents)
+                            # Convert to Documents
+                            regular_docs = [chunk.to_langchain_document() for chunk in regular_chunks] if regular_chunks else other_documents
+                            chunked_documents.extend(regular_docs)
+                            print(f"✅ Applied regular chunking to {len(other_documents)} non-PDF documents")
+                        
+                        # Process the chunked documents
                         offline_result = self.offline_rag.process_documents(chunked_documents)
                         
                         result = {
@@ -928,6 +954,106 @@ class EnhancedRAG:
             pass
         
         return None
+    
+    def get_multimodal_elements(self) -> List:
+        """Get all extracted multimodal elements (tables, images, etc.)."""
+        return self.multimodal_elements
+    
+    def get_tables(self) -> List:
+        """Get all extracted tables."""
+        return [elem for elem in self.multimodal_elements if elem.element_type == "table"]
+    
+    def get_images(self) -> List:
+        """Get all extracted images and charts."""
+        return [elem for elem in self.multimodal_elements if elem.element_type in ["image", "chart"]]
+    
+    def get_processing_summary(self) -> Dict[str, Any]:
+        """Get comprehensive processing summary."""
+        summary = {
+            "system_mode": self.mode,
+            "documents_processed": len(self.processed_documents),
+            "multimodal_elements": {
+                "total": len(self.multimodal_elements),
+                "tables": len(self.get_tables()),
+                "images": len(self.get_images()),
+                "by_type": {}
+            },
+            "features_enabled": {
+                "hybrid_search": self.hybrid_search_enabled,
+                "adaptive_chunking": self.adaptive_chunking_enabled,
+                "multimodal_processing": self.multimodal_enabled,
+                "knowledge_graph": self.graph_rag_enabled,
+                "caching": self.caching_enabled
+            },
+            "processing_methods": []
+        }
+        
+        # Count multimodal elements by type
+        for element in self.multimodal_elements:
+            element_type = element.element_type
+            summary["multimodal_elements"]["by_type"][element_type] = (
+                summary["multimodal_elements"]["by_type"].get(element_type, 0) + 1
+            )
+            
+            # Collect processing methods
+            if element.processing_method not in summary["processing_methods"]:
+                summary["processing_methods"].append(element.processing_method)
+        
+        # Add PDF-specific information
+        pdf_elements = [elem for elem in self.multimodal_elements 
+                       if 'pdf' in elem.processing_method.lower()]
+        if pdf_elements:
+            summary["pdf_processing"] = {
+                "elements_extracted": len(pdf_elements),
+                "extraction_methods": list(set(elem.processing_method for elem in pdf_elements)),
+                "confidence_scores": {
+                    "avg": sum(elem.confidence_score for elem in pdf_elements) / len(pdf_elements),
+                    "min": min(elem.confidence_score for elem in pdf_elements),
+                    "max": max(elem.confidence_score for elem in pdf_elements)
+                }
+            }
+        
+        return summary
+    
+    def search_multimodal_content(self, query: str, element_types: List[str] = None) -> Dict[str, Any]:
+        """Search across multimodal content (tables, images, etc.)."""
+        try:
+            if not self.multimodal_elements:
+                return {"results": [], "message": "No multimodal content available"}
+            
+            # Use multimodal RAG to search elements
+            matching_elements = self.multimodal_rag.query_multimodal_elements(query, element_types)
+            
+            # Format results
+            results = []
+            for element in matching_elements:
+                result_item = {
+                    "element_id": element.element_id,
+                    "element_type": element.element_type,
+                    "description": element.text_description,
+                    "confidence": element.confidence_score,
+                    "metadata": element.metadata,
+                    "processing_method": element.processing_method
+                }
+                
+                # Add type-specific information
+                if element.element_type == "table" and element.structured_data:
+                    result_item["table_info"] = {
+                        "columns": list(element.structured_data.keys()) if element.structured_data else [],
+                        "rows": len(list(element.structured_data.values())[0]) if element.structured_data else 0
+                    }
+                
+                results.append(result_item)
+            
+            return {
+                "results": results,
+                "total_found": len(results),
+                "query": query,
+                "element_types_searched": element_types or "all"
+            }
+            
+        except Exception as e:
+            return {"error": f"Multimodal search failed: {e}", "results": []}
     
     def get_query_analytics(self) -> Dict[str, Any]:
         """Get analytics about query processing patterns."""

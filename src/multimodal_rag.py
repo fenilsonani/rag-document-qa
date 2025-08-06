@@ -787,6 +787,167 @@ class MultiModalRAG:
             logging.warning(f"Multi-modal document processing failed: {e}")
             return []
     
+    def process_pdf_elements(self, pdf_elements: List[MultiModalElement]) -> List[MultiModalElement]:
+        """Process multimodal elements extracted from PDFs with enhanced analysis."""
+        processed_elements = []
+        
+        try:
+            for element in pdf_elements:
+                if element.element_type == "table":
+                    # Enhanced table processing
+                    enhanced_table = self._enhance_pdf_table(element)
+                    processed_elements.append(enhanced_table)
+                    
+                elif element.element_type in ["image", "chart"]:
+                    # Enhanced image processing
+                    enhanced_image = self._enhance_pdf_image(element)
+                    processed_elements.append(enhanced_image)
+                else:
+                    # Keep other elements as-is
+                    processed_elements.append(element)
+            
+            # Store all processed elements
+            for element in processed_elements:
+                self.multimodal_elements.append(element)
+                self.element_index[element.element_id] = element
+            
+            return processed_elements
+            
+        except Exception as e:
+            logging.warning(f"PDF element processing failed: {e}")
+            return pdf_elements
+    
+    def _enhance_pdf_table(self, table_element: MultiModalElement) -> MultiModalElement:
+        """Enhance PDF-extracted table with additional analysis."""
+        try:
+            if not isinstance(table_element.content, pd.DataFrame):
+                return table_element
+            
+            df = table_element.content
+            
+            # Additional analysis beyond what was done during extraction
+            enhanced_metadata = table_element.metadata.copy()
+            
+            # Analyze data patterns
+            numeric_columns = df.select_dtypes(include=[np.number]).columns.tolist()
+            text_columns = df.select_dtypes(include=['object']).columns.tolist()
+            
+            # Statistical insights
+            if numeric_columns:
+                stats_summary = {}
+                for col in numeric_columns:
+                    stats_summary[col] = {
+                        'mean': float(df[col].mean()) if not df[col].isna().all() else None,
+                        'std': float(df[col].std()) if not df[col].isna().all() else None,
+                        'min': float(df[col].min()) if not df[col].isna().all() else None,
+                        'max': float(df[col].max()) if not df[col].isna().all() else None
+                    }
+                enhanced_metadata['statistical_summary'] = stats_summary
+            
+            # Pattern detection
+            patterns = {
+                'has_totals': any('total' in str(cell).lower() for cell in df.values.flatten()),
+                'has_percentages': any('%' in str(cell) for cell in df.values.flatten()),
+                'has_currencies': any('$' in str(cell) or '€' in str(cell) or '£' in str(cell) 
+                                    for cell in df.values.flatten()),
+                'has_dates': any(self._looks_like_date(str(cell)) for cell in df.values.flatten())
+            }
+            enhanced_metadata['content_patterns'] = patterns
+            
+            # Enhanced description
+            original_desc = table_element.text_description
+            pattern_desc = []
+            
+            if patterns['has_totals']:
+                pattern_desc.append("contains summary totals")
+            if patterns['has_percentages']:
+                pattern_desc.append("includes percentage values")
+            if patterns['has_currencies']:
+                pattern_desc.append("contains financial data")
+            if patterns['has_dates']:
+                pattern_desc.append("includes date information")
+            
+            if pattern_desc:
+                enhanced_desc = f"{original_desc} This table {', '.join(pattern_desc)}."
+            else:
+                enhanced_desc = original_desc
+            
+            # Create enhanced element
+            enhanced_element = MultiModalElement(
+                element_id=table_element.element_id,
+                element_type=table_element.element_type,
+                content=table_element.content,
+                metadata=enhanced_metadata,
+                text_description=enhanced_desc,
+                structured_data=table_element.structured_data,
+                confidence_score=min(1.0, table_element.confidence_score + 0.1),  # Slight boost for enhanced processing
+                processing_method=f"{table_element.processing_method}_enhanced"
+            )
+            
+            return enhanced_element
+            
+        except Exception as e:
+            logging.warning(f"Table enhancement failed: {e}")
+            return table_element
+    
+    def _enhance_pdf_image(self, image_element: MultiModalElement) -> MultiModalElement:
+        """Enhance PDF-extracted image with additional analysis."""
+        try:
+            # If we have raw image bytes, process them through our image processor
+            if isinstance(image_element.content, bytes):
+                # Process the image bytes through our advanced image processor
+                processed_image = self.image_processor.process_image(None, image_element.content)
+                
+                if processed_image:
+                    # Merge the analysis results
+                    enhanced_metadata = image_element.metadata.copy()
+                    enhanced_metadata.update(processed_image.metadata)
+                    
+                    # Combine descriptions
+                    original_desc = image_element.text_description
+                    ai_desc = processed_image.text_description
+                    combined_desc = f"{original_desc} {ai_desc}" if ai_desc != "Analysis failed" else original_desc
+                    
+                    # Create enhanced element
+                    enhanced_element = MultiModalElement(
+                        element_id=image_element.element_id,
+                        element_type=processed_image.element_type,  # Might be updated to "chart" if detected
+                        content=processed_image.content,  # PIL Image object
+                        metadata=enhanced_metadata,
+                        text_description=combined_desc,
+                        structured_data=processed_image.structured_data,
+                        confidence_score=max(image_element.confidence_score, processed_image.confidence_score),
+                        processing_method=f"{image_element.processing_method}_ai_enhanced"
+                    )
+                    
+                    return enhanced_element
+            
+            return image_element
+            
+        except Exception as e:
+            logging.warning(f"Image enhancement failed: {e}")
+            return image_element
+    
+    def _looks_like_date(self, text: str) -> bool:
+        """Check if text looks like a date."""
+        try:
+            import re
+            # Simple date patterns
+            date_patterns = [
+                r'\d{1,2}/\d{1,2}/\d{2,4}',  # MM/DD/YYYY
+                r'\d{1,2}-\d{1,2}-\d{2,4}',  # MM-DD-YYYY
+                r'\d{4}-\d{1,2}-\d{1,2}',    # YYYY-MM-DD
+                r'[A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4}',  # Month DD, YYYY
+            ]
+            
+            for pattern in date_patterns:
+                if re.search(pattern, text):
+                    return True
+            return False
+            
+        except Exception:
+            return False
+    
     def query_multimodal_elements(self, query: str, element_types: Optional[List[str]] = None) -> List[MultiModalElement]:
         """Query multi-modal elements based on text similarity."""
         try:
