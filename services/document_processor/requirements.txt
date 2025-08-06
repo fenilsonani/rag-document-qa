@@ -1,0 +1,26 @@
+# Document Processing Service Requirements
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.4.0
+aiofiles>=23.2.0
+python-multipart>=0.0.6
+
+# PDF Processing
+pdfplumber>=0.9.0
+camelot-py[cv]>=0.10.1
+PyMuPDF>=1.23.0
+tabula-py>=2.8.0
+
+# Image Processing
+Pillow>=10.0.0
+opencv-python>=4.8.0
+pytesseract>=0.3.10
+
+# AI Models
+transformers>=4.30.0
+torch>=2.0.0
+accelerate>=0.20.0
+
+# Utils
+numpy>=1.24.0
+pandas>=2.0.0

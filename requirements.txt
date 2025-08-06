@@ -74,3 +74,32 @@ networkx>=3.0
 
 # Model downloading and management
 huggingface_hub>=0.16.0
+
+# Enterprise Microservices Dependencies
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.4.0
+aiofiles>=23.2.0
+python-multipart>=0.0.6
+httpx>=0.25.0
+
+# Authentication & Security
+pyjwt>=2.8.0
+passlib[bcrypt]>=1.7.4
+python-jose[cryptography]>=3.3.0
+
+# Monitoring & Observability
+prometheus-client>=0.17.0
+opentelemetry-api>=1.20.0
+opentelemetry-sdk>=1.20.0
+opentelemetry-exporter-jaeger-thrift>=1.20.0
+opentelemetry-exporter-prometheus>=1.12.0
+opentelemetry-instrumentation-fastapi>=0.41b0
+opentelemetry-instrumentation-logging>=0.41b0
+opentelemetry-instrumentation-httpx>=0.41b0
+psutil>=5.9.0
+
+# Enterprise Features
+celery>=5.3.0
+kombu>=5.3.0
+flower>=2.0.1

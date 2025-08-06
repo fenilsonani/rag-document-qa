@@ -13,10 +13,10 @@ from langchain_community.document_loaders import (
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-from config import Config
-from advanced_pdf_processor import AdvancedPDFProcessor
-from multimodal_rag import MultiModalElement
-from universal_file_processor import UniversalFileProcessor
+from .config import Config
+from .advanced_pdf_processor import AdvancedPDFProcessor
+from .multimodal_rag import MultiModalElement
+from .universal_file_processor import UniversalFileProcessor
 
 
 class DocumentProcessor:

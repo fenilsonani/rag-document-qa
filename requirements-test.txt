@@ -1,0 +1,41 @@
+# Testing dependencies for RAG Document Q&A System
+
+# Core testing framework
+pytest>=7.0.0
+pytest-cov>=4.0.0
+pytest-mock>=3.10.0
+pytest-xdist>=3.0.0  # For parallel test execution
+pytest-timeout>=2.1.0
+pytest-html>=3.1.0  # HTML test reports
+pytest-json-report>=1.5.0  # JSON test reports
+
+# Test utilities and mocking
+mock>=4.0.0
+responses>=0.23.0  # For mocking HTTP requests
+factory-boy>=3.2.0  # Test data generation
+faker>=18.0.0  # Fake data generation
+
+# Code quality and linting
+flake8>=6.0.0
+black>=23.0.0
+isort>=5.12.0
+mypy>=1.0.0
+
+# Coverage reporting
+coverage>=7.0.0
+coverage-badge>=1.1.0
+
+# Performance testing
+pytest-benchmark>=4.0.0
+memory-profiler>=0.60.0
+
+# Security testing
+safety>=2.0.0
+bandit>=1.7.0
+
+# Documentation testing
+pytest-doctest>=1.1.0
+
+# Integration testing helpers
+testcontainers>=3.7.0  # For containerized testing
+requests-mock>=1.10.0

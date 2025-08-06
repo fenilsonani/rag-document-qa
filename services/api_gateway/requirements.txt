@@ -1,0 +1,14 @@
+# API Gateway Requirements
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.4.0
+
+# HTTP Client
+httpx>=0.25.0
+
+# Authentication
+pyjwt>=2.8.0
+python-multipart>=0.0.6
+
+# Utils
+redis>=5.0.0

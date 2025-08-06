@@ -1,0 +1,11 @@
+{
+  "timestamp": "2025-08-06 15:28:45",
+  "results": {
+    "unit": false
+  },
+  "summary": {
+    "total_suites": 1,
+    "passed_suites": 0,
+    "failed_suites": 1
+  }
+}
